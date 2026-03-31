@@ -1,7 +1,7 @@
 [project]
 name = "tatva"
 version = "0.9.0"
-description = "Lego-like building blocks for differentiable finite element analysis"
+description = "Focused tatva fork for NTU Dynamic Strain Akantu-to-tatva case conversion"
 authors = [
     { name = "Mohit Pundir", email = "mpundir@ethz.ch" },
     { name = "Flavio Lorez", email = "florez@ethz.ch" },
@@ -20,6 +20,8 @@ classifiers = [
 dependencies = [
     "jax>=0.4.1",
     "numpy",
+    "h5py",
+    "matplotlib",
     "jax-autovmap>=0.3.0",
     "tatva-coloring>=0.0.2"
 ]
@@ -37,4 +39,4 @@ requires = [ "hatchling", ]
 build-backend = "hatchling.build"
 
 [project.urls]
-repository = "https://github.com/smec-ethz/tatva"
+repository = "https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva"

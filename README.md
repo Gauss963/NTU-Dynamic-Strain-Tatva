@@ -1,92 +1,304 @@
-<div align="center">
+# NTU Dynamic Strain Tatva Fork
 
-<img src="assets/logo-small.png" alt="drawing" width="400"/>
+This repository is a focused fork of `tatva` for Akantu-to-tatva migration work in the NTU Dynamic Strain project.
+It is no longer a general showcase repository for the upstream library. Instead, it is organized around one practical goal:
+building, running, and extending converted simulation cases, starting with the 2D velocity-weakening problem.
 
-<h3 align="center">Tatva (टत्तव) : Lego-like building blocks for differentiable FEM</h3>
+## Scope
 
-`tatva` (is a Sanskrit word which means principle or elements of reality). True to its name, `tatva` provide fundamental Lego-like building blocks (elements) which can be used to construct complex finite element method (FEM) simulations. `tatva` is purely written in Python library for FEM simulations and is built on top of JAX ecosystem, making it easy to use FEM in a differentiable way.
+This fork keeps:
 
-</div>
+- the `tatva` core required by the converted simulations
+- the velocity-weakening parser and solver bridge
+- the case driver and post-processing scripts
+- one smoke test for end-to-end validation
+- one example entry point for the converted case
 
-[![Documentation](https://github.com/smec-ethz/tatva-docs/actions/workflows/pages/pages-build-deployment/badge.svg)](https://github.com/smec-ethz/tatva-docs/actions/workflows/pages/pages-build-deployment)
-[![Tests](https://github.com/smec-ethz/tatva/actions/workflows/run_tests.yml/badge.svg)](https://github.com/smec-ethz/tatva/actions/workflows/run_tests.yml)
+This fork removes or de-emphasizes:
+
+- upstream release and mirror automation
+- branding assets
+- unrelated examples
+- unrelated test and benchmark files
+
+## Repository Layout
+
+```text
+tatva/
+  tatva/
+    legacy_velocity_weakening.py
+    ...
+  Velocity-weakening/
+    src/
+      velocity_weakening_tatva.py
+      plot_contact_friction_map.py
+      plot_contact_mu_disp.py
+      render_stress_frames.py
+    Mesh/
+    Materials/
+    Plot/
+    data/
+    stats/
+    runs/
+  example/
+    velocity_weakening_2d.py
+  tests/
+    test_legacy_velocity_weakening.py
+  NTU-Dynamic-Strain/
+    ...
+```
+
+## Local Reference Data
+
+The current conversion reads legacy inputs from the local reference folder:
+
+- `NTU-Dynamic-Strain/Gmsh/Block-Assembly2D.py`
+- `NTU-Dynamic-Strain/Materials/NTN-LSW.dat`
+- `NTU-Dynamic-Strain/Akantu/Velocity-weakening/Velocity-weakening-LSW.cc`
+
+`NTU-Dynamic-Strain/` is intentionally ignored by git.
+It is treated as local reference input only.
+
+## Environment Setup
+
+The recommended workflow uses the `tatva` conda environment.
+
+If the environment already exists:
+
+```bash
+conda activate tatva
+pip install -e .
+pip install matplotlib h5py pytest
+```
+
+If you need a fresh environment:
+
+```bash
+conda create -n tatva python=3.12 -y
+conda activate tatva
+pip install -e .
+pip install matplotlib h5py pytest
+```
+
+You also need `ffmpeg` on `PATH` for MP4 animation output.
+
+## Current Execution Model
+
+- CPU is the default runtime target.
+- JAX multithreading is configured automatically by the case driver.
+- Static plots are written as PDF.
+- Animation frames are written as PNG and encoded to MP4.
+- Animations default to standard 4K (`3840x2160`).
+- Stress animations default to swapped axes: `y` is horizontal and `x` is vertical.
+- Frame rendering uses multiple worker processes by default.
+
+## Run The Existing Velocity-Weakening Case
+
+From the repository root:
+
+```bash
+conda run -n tatva python ./Velocity-weakening/src/velocity_weakening_tatva.py \
+  --mesh-size 5 \
+  --dtype float32 \
+  --normal-phase-time 0.04 \
+  --shear-phase-time 5.30994e-04 \
+  --normal-ramp-time 0.02 \
+  --cfl 0.01004185 \
+  --shear-scale 2.5 \
+  --frames-per-phase 4800 \
+  --shear-frames-per-phase 28800 \
+  --omit-initial-frame \
+  --lock-shear-edge-during-normal \
+  --run-label lockedge-normal40ms-ramp20ms-hold20ms-shear0p530994ms-shearx2p5 \
+  --num-threads 8 \
+  --animation-workers 8
+```
+
+## Main Driver
+
+The main production driver is:
+
+- `Velocity-weakening/src/velocity_weakening_tatva.py`
+
+Important arguments:
+
+- `--mesh-size`
+  Structured mesh spacing in millimeters.
+- `--normal-phase-time`
+  Duration of the normal loading phase in seconds.
+- `--shear-phase-time`
+  Duration of the shear loading phase in seconds.
+- `--normal-ramp-time`
+  Time used to ramp normal stress before the hold stage.
+- `--shear-scale`
+  Multiplier applied to the legacy shear traction level.
+- `--frames-per-phase`
+  Target dump count for the normal phase.
+- `--shear-frames-per-phase`
+  Target dump count for the shear phase.
+- `--lock-shear-edge-during-normal`
+  Fixes the future shear edge during the normal phase.
+- `--num-threads`
+  CPU thread count passed to JAX/XLA.
+- `--animation-workers`
+  Worker count for frame rendering.
+- `--skip-animation`
+  Skip MP4 creation.
+- `--skip-mu-plot`
+  Skip the friction heatmap.
+- `--skip-mu-disp-plot`
+  Skip the friction-versus-slip plot.
+- `--no-animation-swap-axes`
+  Disable the default swapped-axis animation layout.
+
+## Where Outputs Go
+
+Each run is archived automatically under:
+
+```text
+Velocity-weakening/runs/000X_<run-label>/
+```
+
+Inside a run directory:
+
+- `data/simulation.h5`
+  Full dumped fields, history arrays, and interface data.
+- `stats/summary.json`
+  Run summary and output locations.
+- `Plot/*.pdf`
+  Static plots in PDF format.
+- `Plot/stress_frames/`
+  PNG frames for the default animation.
+- `Plot/stress_60fps.mp4`
+  Default MP4 animation.
+
+## Post-Processing Scripts
+
+These scripts can be re-run after the simulation if `simulation.h5` already exists:
+
+- `Velocity-weakening/src/plot_contact_friction_map.py`
+- `Velocity-weakening/src/plot_contact_mu_disp.py`
+- `Velocity-weakening/src/render_stress_frames.py`
+
+### Rebuild friction maps
+
+```bash
+conda run -n tatva python ./Velocity-weakening/src/plot_contact_friction_map.py \
+  --input ./Velocity-weakening/runs/0004_example/data/simulation.h5 \
+  --output ./Velocity-weakening/runs/0004_example/Plot/mu_eff_map.pdf \
+  --phase-split-output ./Velocity-weakening/runs/0004_example/Plot/mu_eff_map_phase_split.pdf
+```
+
+### Rebuild a `mu-slip` plot
+
+```bash
+conda run -n tatva python ./Velocity-weakening/src/plot_contact_mu_disp.py \
+  --input ./Velocity-weakening/runs/0004_example/data/simulation.h5 \
+  --output ./Velocity-weakening/runs/0004_example/Plot/contact_mu_disp.pdf
+```
+
+### Rebuild the default 4K animation
+
+```bash
+conda run -n tatva python ./Velocity-weakening/src/render_stress_frames.py \
+  --input ./Velocity-weakening/runs/0004_example/data/simulation.h5 \
+  --frames-dir ./Velocity-weakening/runs/0004_example/Plot/stress_frames \
+  --video ./Velocity-weakening/runs/0004_example/Plot/stress_60fps.mp4 \
+  --workers 8
+```
+
+## How To Add A New Case
+
+The current velocity-weakening conversion is not a completely generic importer.
+The cleanest way to add a new case is to follow the same project pattern.
+
+### Step 1: Create a new case folder
+
+Create a sibling folder next to `Velocity-weakening`, for example:
+
+```text
+My-New-Case/
+  src/
+  Mesh/
+  Materials/
+  Plot/
+  data/
+  stats/
+  runs/
+```
+
+Generated outputs do not need to be tracked by git.
+
+### Step 2: Add a dedicated legacy loader
+
+The current loader is:
+
+- `tatva/legacy_velocity_weakening.py`
+
+It is hard-coded to parse the current legacy geometry, material, and simulation files.
+For a new case, duplicate this module and adapt:
+
+- geometry parsing
+- material parsing
+- friction law parsing
+- load schedule parsing
+- contact definition
+- boundary conditions
+
+Suggested naming pattern:
+
+```text
+tatva/legacy_<case_name>.py
+```
+
+### Step 3: Add a case driver
+
+Use:
+
+- `Velocity-weakening/src/velocity_weakening_tatva.py`
+
+as the template for the new driver.
+Replace:
+
+- the imported loader
+- the default case label
+- any case-specific defaults
+
+Suggested naming pattern:
+
+```text
+<CaseFolder>/src/<case_name>_tatva.py
+```
+
+### Step 4: Reuse or adapt the post-processing scripts
+
+The current plotting and animation scripts assume the same HDF5 layout as the velocity-weakening workflow.
+If your new case writes the same groups and field names, you can reuse them directly.
+If not, duplicate the scripts and adapt the dataset names.
+
+### Step 5: Add a smoke test
+
+Use:
+
+- `tests/test_legacy_velocity_weakening.py`
+
+as the template for a new end-to-end smoke test.
+The goal is to confirm that parsing, assembly, time integration, dumping, and post-processing still work together.
+
+## Running The Smoke Test
+
+```bash
+conda run -n tatva pytest ./tests/test_legacy_velocity_weakening.py -q
+```
+
+## Git Notes
+
+- `origin` points to this fork.
+- `upstream` points to the original `smec-ethz/tatva` repository.
+- `NTU-Dynamic-Strain/` is ignored on purpose.
+- generated HDF5 files, plots, videos, and archived runs are ignored on purpose.
 
 ## License
 
-`tatva` is distributed under the GNU Lesser General Public License v3.0 or later. See `COPYING` and `COPYING.LESSER` for the complete terms. © 2025 ETH Zurich (SMEC).
-
-## Features
-
-- Energy-based formulation of FEM operators with automatic differentiation via JAX.
-- Capability to handle coupled-PDE systems with multi-field variables, KKT conditions, and constraints. 
-- Element library covering line, surface, and volume primitives (Line2, Tri3, Quad4, Tet4, Hex8) with consistent JAX-compatible APIs.
-- Mesh and Operator abstractions that map, integrate, differentiate, and interpolate fields on arbitrary meshes.
-- Automatic handling of stacked multi-field variables through the `tatva.compound` utilities while preserving sparsity patterns.
-
-## Installation
-
-Install the current release from PyPI:
-
-```bash
-pip install tatva
-```
-
-For development work, clone the repository and install it in editable mode (use your preferred virtual environment tool such as `uv` or `venv`):
-
-```bash
-git clone https://github.com/smec-ethz/tatva.git
-cd tatva
-pip install -e .
-```
-
-## Documentation
-
-Available at [**smec-ethz.github.io/tatva-docs**](https://smec-ethz.github.io/tatva-docs/). The documentation includes API references, tutorials, and examples to help you get started with `tatva`.
-
-## Usage
-
-Create a mesh, pick an element type, and let `Operator` perform the heavy lifting with JAX arrays:
-
-```python
-import jax.numpy as jnp
-from tatva.element import Tri3
-from tatva.mesh import Mesh
-from tatva.operator import Operator
-
-coords = jnp.array([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]])
-elements = jnp.array([[0, 1, 2], [0, 2, 3]])
-
-mesh = Mesh(coords, elements)
-
-op = Operator(mesh, Tri3())
-nodal_values = jnp.arange(coords.shape[0], dtype=jnp.float64)
-
-# Integrate a nodal field over the mesh
-total = op.integrate(nodal_values)
-
-# Evaluate gradients at all quadrature points
-gradients = op.grad(nodal_values)
-```
-
-Examples for various applications will be added very soon. They showcase patterns such as
-mapping custom kernels, working with compound fields, and sparse assembly helpers.
-
-## Dense vs Sparse vs Matrix-free
-
-A unique aspect of `tatva` is that it can handle construct dense matrices, sparse matrices, and matrix-free operators. `tatva` uses matrix-coloring algorithm and sparse differentiation to construct a sparse matrix. We use our own coloring library ![tatva-coloring](https://github.com/smec-ethz/tatva-coloring) to color a matrix based on sparsity pattern, one can use other coloring libraries such as ![pysparsematrixcolorings](https://github.com/gdalle/pysparsematrixcolorings) for more advanced coloring algorithms. This significantly reduces the memory consumption. For large problems, we can also use matrix-free operators which do not require storing the matrix in memory. Since we have a energy functional, we can make use of `jax.jvp` ti compute the matrix-vector product without explicitly forming the matrix. This is particularly useful for large problems where storing the matrix is not feasible.
-
-
-## Paper
-
-To know more about `tatva` and how it works please check: ([arXiv link](https://arxiv.org/abs/2602.12365v1))
-
-
-## 👉 Where to contribute
-
-If you have a suggestion that would make this better, please fork the repo and create a pull request on [**github.com/smec-ethz/tatva**](https://github.com/smec-ethz/tatva). Please use that repository to open issues or submit merge requests. You can also simply open an issue with the tag "enhancement". Don't forget to give the project a star! Thanks again!
-
-1. Fork the Project
-2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+This codebase remains under the GNU Lesser General Public License v3.0 or later.
+See `COPYING` and `COPYING.LESSER` for the full license text.
