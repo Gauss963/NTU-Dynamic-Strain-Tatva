@@ -24,3 +24,16 @@ uv.lock
 tatva-coloring/target
 *.so
 Cargo.lock
+
+# Local macOS metadata
+.DS_Store
+
+# Reference input data copied from the legacy Akantu project
+NTU-Dynamic-Strain/
+
+# Local simulation outputs
+Velocity-weakening/Plot/
+Velocity-weakening/data/
+Velocity-weakening/stats/
+Velocity-weakening/runs/
+Velocity-weakening/runs-smoke*/
