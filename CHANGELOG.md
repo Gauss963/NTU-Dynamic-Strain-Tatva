@@ -5,6 +5,114 @@ from conventional commits.
 All notable changes to this project will be documented here, following
 [Semantic Versioning](https://semver.org/).
 
+## 0.1.0 (2026-03-31)
+
+
+### Features
+
+* add operator total lagrangian for nonlinear (unclear if change is sufficient) ([2c20645](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2c20645a89a8080e3877c3af67402fcbae750ca6))
+* add quadratic Tri6 element ([37cf37a](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/37cf37a1c9995fa3eeb33ed59523ef017d1e5743))
+* add rectangle mesh ([440ad7f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/440ad7f624d7a2ffaa19050499c8298ae6337a22))
+* add solver_utils a Lifter class making bcs easier ([29de30b](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/29de30b15827bfd1d1650e215d4439e082ff0556))
+* **compound:** add __add__ +rename _data to arr (the flat data array) ([c1e80db](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/c1e80db6cb26d6c9213f25cdd4cf1c02f9c7e943))
+* **compound:** add .at(...).set(...) logic to set subspaces ([84d0c8d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/84d0c8dabe21dc5f3f42884683741097db80ec28))
+* **compound:** add .idx for indexing global with local idx +add pytree methods for jax.laxwhile use ([ff4f318](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/ff4f318daee639012e88dc9bdeed13a219879725))
+* **compound:** add ability to provide individual shaped fields in init ([921f6c4](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/921f6c421371129502ed91c1fbdfb3c3c63b5f2d))
+* **compound:** add compound class to simplify packing/unpacking from and into flat array ([029cce3](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/029cce3cfc537a8a54d4941a4a1cdb3984a7d45b))
+* **compound:** add functionality to reorder the array by stacking fields (make hessian diagonal -&gt; easy sparsity pattern) ([6ce6f49](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/6ce6f492a74ebab985bcb0519e90059bd6b6023d))
+* **element:** add quadratic Line3 and Quad8 elements ([#18](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/issues/18)) ([37bffdd](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/37bffdd9f898d28fd7bf0ef857d51253b13baa1a))
+* **element:** add tetrahedron and hexahedron elements ([5fb66a2](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/5fb66a2f5e3f53272e4da7eaa1c502a2381df744))
+* **element:** add tetrahedron and hexahedron elements ([d92b934](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/d92b934cfce2e2d07f0d1dd0158be8b348cbbff4))
+* **lifter:** add lifted method/decorator to lift functions ([2077ffb](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2077ffb68d4cf16f322b6486bf3db93dde8ec9e7))
+* **lifter:** include periodic boundary conditions in the lifter ([2e7ee32](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2e7ee320ac72c02cdd367488228a23dba0b33b2b))
+* **lifter:** renamed constraints; DirichletBC -&gt; Fixed; PeriodicMap -&gt; ([f4b9a78](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/f4b9a78b2916ca323195c9ad66f5cf98cd3279e6))
+* **lifter:** reworked Lifter with support for changing values (RuntimeValue) ([f4b9a78](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/f4b9a78b2916ca323195c9ad66f5cf98cd3279e6))
+* **mesh:** add dimension arg ([f730de8](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/f730de83307f0b15dd63a94b55520fb9db583599))
+* **mesh:** add generation of quad mesh in 2d ([d09036a](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/d09036a419fc3d8f6b27318736d7123551f97fc5))
+* **operator:** add an L2 `project` method ([98a16d6](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/98a16d60f76285ca63d2b5c6365a2a7d952295f6))
+* **operator:** add map_over_element which maps a generic function over all elements but not gauss points ([1ffd67c](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/1ffd67cad0e5fe3f026250f94d5ad80a8bcc7fb2))
+* **operator:** add to map an argument "element_quantity" to specify arguments which are not nodal but elemental values ([5f0e3d6](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/5f0e3d6e1131d1c0aa0145988b853895696bcfd2))
+* **operator:** map method ([0a8f94c](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/0a8f94cba1a753f48a5fa82d0ef67c8f53afaa65))
+* **operator:** map method to map over any function (provided by the element) given a certain signature ([62deb78](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/62deb78a0aa5339cf4fa4571e4c8129c123eb8ea))
+* **operator:** mesh and element validation in __post_init__ ([0978269](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/09782694d6749294b594b6a2e7c20503f1eb7ef6))
+* overload integrate function to integrate function, nodal_values, or quad_values +type annotations for optional arguments of decorated functions ([8fbdf15](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/8fbdf15cfa949de8b9560f7cefd21e7acab5079b))
+* replace additional_values_at_quad (jax.Array) with a generic *args to pass something additional (like material properties) ([7de0834](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/7de083460d9de92dc2e091ab1613ebb3703c38ef))
+* replace additional_values_at_quad (jax.Array) with a generic *args to... ([738a4a5](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/738a4a5dc71e18c9a77d2416bdabf7a27c9049e4))
+* **sparse:** add a ColoredMatrix type for sparse differentiation ([2ab3214](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2ab3214678473ed83abd6a01aec8497b8bb66c2b))
+* **sparse:** add coloring code (source mpundir) ([0623e2c](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/0623e2c6cb3f6c0b2959915bc48a2cbd38e397fb))
+* **sparse:** add method to generate sparsity pattern with full master-slave dof map (from zrlf) ([5d37d56](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/5d37d56f8eb074cb9aee1789543003849227b014))
+* **utils:** add a decorator for virtual residual functions ([#32](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/issues/32)) ([c2d6db3](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/c2d6db3d430f57191e80a7d09ab3e88fb6a2725e))
+
+
+### Bug Fixes
+
+* adapt sparse benchmark with new api ([93d1cf4](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/93d1cf4e70436934af45f419c306dcf9d968cb27))
+* changes to sparsity pattern generation. need diagonal for LM, for lifting inactive multipliers ([b353c2b](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/b353c2baa332da71bf964bc80e490e91225d238f))
+* **compound:** add Field.size attribute ([cf8505d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/cf8505d9d375b4a69680871553832b6bd844a100))
+* **compound:** fix compound stack_fields for scalar fields ([92bf79f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/92bf79f564ab73f8d5c26d58c9eec7e933eb5c7f))
+* **compound:** include default factory when recreating stacked fields ([9ef3972](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/9ef39729b2a8617cf91eb7c127d3442c27d6d3a6))
+* **compound:** manage field indices, and arr updates without materializing a dense integer array of all indices ([17897a1](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/17897a1de546cf4ece27fe516db43b526ed35288))
+* **compound:** preserve shape of scalar fields (don't enforce rank 2) ([92bf79f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/92bf79f564ab73f8d5c26d58c9eec7e933eb5c7f))
+* **compound:** refactor stack_fields into a class decorator ([305b87f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/305b87fd4b3be30c34c6087d149776d59971e80d))
+* **compound:** remove compound metaclass getitem ([e42ad40](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/e42ad409c1b7e181b20cc8196e984f3fa6950ad8))
+* **compound:** respect default_factory for initialization of compound instances ([#9](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/issues/9)) ([7449120](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/74491201ec9a0672988f7a6f8718ebb3daaea2e3))
+* corrected Hex8 implementation, test for elements added ([70755e6](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/70755e6d9993fd1c6313a438951ea2668650672d))
+* corrected Hex8 implementation, test for elements added ([402080d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/402080d7945d24c07c58d82fff2922ec1055fa42))
+* **element:** allow interpolate func to accept nodal_coords ([#16](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/issues/16)) ([2042d98](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2042d9849e87e4e981aed8599fc74efd8b3a2666))
+* **element:** move quadrature to instance, add quadrature as constructor args ([#27](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/issues/27)) ([06c9c19](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/06c9c19668881f537f160e2a9eaec16e44487f18))
+* fix cherrypick of interpolate function ([fb0501f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/fb0501f345658d4225f93b8236f378edda6883b8))
+* fix total lagrangian for updated lagrangian ([63ded30](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/63ded309db0cb4be41d5e07331845378eded609c))
+* fixes after rebase ([3cf2df8](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/3cf2df8f6351470d1646256c2087dfc9c405a83a))
+* integrate should only sum over elements and quad points, not dimensions of quantity ([8e20ee4](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/8e20ee4a387030685895d6e361d5eb43a4e138ba))
+* **lifter:** clarify constraint contract and make constraints hashable for jax.jit static args ([ad08049](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/ad0804931cf57e077274d963ab4e965cf62b0f3b))
+* **lifter:** implement improvements based on review ([250a4e0](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/250a4e0ad224c4de614609a80194642ad3b97e6f))
+* **lifter:** make constructor arguments 1 and 2 positional only ([5230c75](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/5230c750730f4299b188297454f3d1b8853d42e2))
+* **lifter:** make dof arrays dynamic Array ([b2222bc](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/b2222bce7a75e163842093038c8639202c63a2a0))
+* **lifter:** support lifters as dynamic and static arguments to jitted ([f4b9a78](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/f4b9a78b2916ca323195c9ad66f5cf98cd3279e6))
+* make ColoredMatrix compatible with JAX&gt;0.9.0 ([ac51668](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/ac51668bc4c0b480f32f73acac0f4aff04758e92))
+* **mesh:** add _replace helper to update dataclass ([2c1d9b6](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2c1d9b617d46c1a57fb345351e20e5446eafbdad))
+* **mesh:** add correctly the element type and dim arguments also to rectangle() ([42d8951](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/42d8951b18d93d277a55ff88632741481d75dad6))
+* **mesh:** add hmin and hmax methods ([489b76a](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/489b76a03fee2b7568f59b5eb982eda878f47152))
+* **mesh:** hmin/hmax is the cell diameter which is 2*circumradius ([6167223](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/61672235b9ee28c2d2c8004be78dae477c579d20))
+* **mesh:** hotfix find_containing_polygons that points exactly on boundary are valid ([3f95f2f](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/3f95f2f6f6e5354dca38e87e6dadb0fd0ac1f536))
+* minor fixes from code review ([97c6bd4](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/97c6bd4e1969428ffc365aefb1705bba082bc882))
+* **operator:** computes detJ with quad weights at initialization ([e40b699](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/e40b699f2f46d5cc1a90acedcb0bca5d8b067be4))
+* **operator:** fixes one axis too much in summing integral ([22e5c2c](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/22e5c2cfa71d82093bff48ff880a4f021f152488))
+* **operator:** make interpolate jittable ([d9fe62b](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/d9fe62bf6f179879de90ab7e0f428aace7a0aa8d))
+* **operator:** moving detJ and detJ weight calculation to initalization ([dc0b03d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/dc0b03df68c5e8709a77b230da2ca2fd5d110bb3))
+* **operator:** removes check on quad points dimnension to be equal to coords dimension, necessary for 2D elements in 3D space ([3827149](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/382714951796c920cf16be1ee5e9eac7da3a9e63))
+* **operator:** replaces jax.vmap with batched jax.lax.map for memory efficiency and scalin ([fbab11a](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/fbab11a9c5e8f7e8a990f2a8bf4ef524eb0bc376))
+* **operator:** set batch_size if None given ([e57b362](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/e57b3629a620c050fb2b886e64ed1c997dc65280))
+* **operator:** skip element bounds checks in traced context ([1b7a0a7](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/1b7a0a77f9245ce1d69a9f42ffac25b11588ddef))
+* **plotting:** add import check and verbose error if optional package matplotlib is missing ([035ea71](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/035ea719d92c4bafb081006becfbd6c495c8a6af))
+* **plotting:** remove personal config + bring simple plot methods up to date ([064cda9](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/064cda908893128571531f1b0d8d66c2adc9b6d3))
+* **plotting:** removes imports of cmcrameri ([32694c1](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/32694c12e005a841dff93f2876e157e7ceb87003))
+* remove autovmap and replacing it with dependency of the original project ([1cb17aa](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/1cb17aa39c1b1b387e7e909d2161b40610d309bf))
+* remove jax BCOO based code for master-slave sparsity ([ac49fc5](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/ac49fc5e6f8a23f6eafc06097b8d7f224e2b2c3d))
+* **sparse:** enables sparse jacfwd with args without performance issue ([9ba9530](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/9ba953089032593c6d9d74b6279921428a131070))
+* **sparse:** make default for color_batch_size None but assign 0 ([071af07](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/071af0709470586f46ba615e6a3f2eefd9b56351))
+* **sparse:** pass args and kwargs directly to colored jacobian to prevent recompilation and slowness ([2d497df](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2d497dfd3d71d9685a5fa1ef88d4f6f75951c8f5))
+* **sparse:** process color based jacobian in batches, replaces jax.linearize with jax.jvp ([6b361d7](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/6b361d704856102bd429d2f9b2a0e1d83fd65584))
+* **sparse:** revert the default for colored_batch_size to max color ([9ee95da](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/9ee95da5be03cb0a5339cd80700256dd273ab474))
+* **sparse:** set default color_batch_size=max_color ([2683d89](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2683d891510cfcb9f2e7cb511d3309289ac5718a))
+* **sparse:** single jacfwd function with color batching by default ([4f96770](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/4f96770f01e2203a82a0cfa8695da6506ea193fe))
+* **sparse:** switch to scipy csr matrix in all sparsity pattern creation ([2ab3214](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/2ab3214678473ed83abd6a01aec8497b8bb66c2b))
+* **sparse:** wraps jacfwd func to accept single parameter ([9fe01e3](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/9fe01e33db3a3a3c15d159d451793010a2132cbf))
+* update version of jax to &gt;=0.4.1 ([fc6a34d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/fc6a34d8d8d04f8c2bd1634887c550602f09e628))
+
+
+### Performance Improvements
+
+* **mesh:** AABB search for interpolation in triangles ([32ff68d](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/32ff68d12da2b2a37e6bbc28ad1a5800c0fdc0ea))
+* **sparse:** precompute reconstruction of data from J_compressed ([d2f6a37](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/d2f6a3704bdaebeafa30c5c75f5b9e6de2a33781))
+
+
+### Documentation
+
+* **compound:** update docstring of compound class ([0c8fa69](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/0c8fa699f8f0e96f7564d3788f47c438c698734c))
+* **lifter:** extend docs for lifter module ([77de185](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/77de185d15ff534f846694a104854fe09379beda))
+* **readme:** bring readme up to date ([6ce6d2c](https://github.com/Gauss963/NTU-Dynamic-Strain-Tatva/commit/6ce6d2c394386133678fb6fe57656b2694d81b70))
+
 ## [0.9.0](https://github.com/smec-ethz/tatva/compare/v0.8.1...v0.9.0) (2026-03-27)
 
 
