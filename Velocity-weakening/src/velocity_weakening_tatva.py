@@ -90,6 +90,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", choices=["float32", "float64"], default="float32")
     parser.add_argument("--platform", choices=["cpu", "metal"], default="cpu")
     parser.add_argument("--num-threads", type=int, default=os.cpu_count() or 1)
+    parser.add_argument("--normal-stress", type=float, default=None)
+    parser.add_argument("--shear-tau-k", type=float, default=None)
+    parser.add_argument("--shear-tau-s", type=float, default=None)
     parser.add_argument("--normal-penalty", type=float, default=None)
     parser.add_argument("--tangential-penalty", type=float, default=None)
     parser.add_argument("--shear-scale", type=float, default=1.0)
@@ -228,6 +231,9 @@ def main() -> int:
             normal_penalty=args.normal_penalty,
             tangential_penalty=args.tangential_penalty,
             shear_scale=args.shear_scale,
+            normal_stress_override=args.normal_stress,
+            shear_tau_k_override=args.shear_tau_k,
+            shear_tau_s_override=args.shear_tau_s,
             output_prefix=None,
             normal_phase_time=normal_phase_time,
             shear_phase_time=shear_phase_time,

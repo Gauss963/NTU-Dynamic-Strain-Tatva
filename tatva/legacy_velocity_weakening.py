@@ -82,6 +82,9 @@ class RunConfig:
     shear_scale: float = 1.0
     dimension: int = 2
     thickness: float = 0.0
+    normal_stress_override: float | None = None
+    shear_tau_k_override: float | None = None
+    shear_tau_s_override: float | None = None
 
 
 @dataclass(frozen=True)
@@ -596,6 +599,11 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
 
     moving_material = case.materials["moving-block"]
     stationary_material = case.materials["stationary-block"]
+    normal_stress = (
+        case.simulation.normal_stress
+        if config.normal_stress_override is None
+        else float(config.normal_stress_override)
+    )
 
     moving_mass = lumped_mass(moving.operator, moving_material.rho, dtype)
     stationary_mass = lumped_mass(stationary.operator, stationary_material.rho, dtype)
@@ -629,7 +637,7 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         )
     ].add(
         moving.boundary_weights["moving-block-back"]
-        * jnp.asarray(case.simulation.normal_stress, dtype=dtype)
+        * jnp.asarray(normal_stress, dtype=dtype)
     )
 
     force_shear_unit = jnp.zeros(total_dofs, dtype=dtype).at[
@@ -700,8 +708,16 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
     )
     shear_ratio = case.moving.dimensions[1] / case.stationary.dimensions[0]
     tau_scale = max(float(config.shear_scale), 0.0)
-    tau_k = tau_scale * shear_ratio * case.friction.mu_k * case.simulation.normal_stress
-    tau_s = tau_scale * shear_ratio * case.friction.mu_s * case.simulation.normal_stress
+    tau_k = (
+        float(config.shear_tau_k_override)
+        if config.shear_tau_k_override is not None
+        else tau_scale * shear_ratio * case.friction.mu_k * normal_stress
+    )
+    tau_s = (
+        float(config.shear_tau_s_override)
+        if config.shear_tau_s_override is not None
+        else tau_scale * shear_ratio * case.friction.mu_s * normal_stress
+    )
     dtau = (tau_s - tau_k) / rise_steps
 
     scalar_dtype = np.float32 if dtype == jnp.float32 else np.float64
@@ -747,6 +763,7 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         "tau_k": float(tau_k),
         "tau_s": float(tau_s),
         "shear_scale": tau_scale,
+        "normal_stress": float(normal_stress),
         "pressure_time": float(pressure_time),
         "shear_time": float(shear_time),
         "normal_ramp_time": float(normal_ramp_time),
