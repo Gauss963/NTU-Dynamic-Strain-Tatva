@@ -79,6 +79,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="tatva rewrite of the Akantu velocity-weakening simulation."
     )
+    parser.add_argument("--dimension", type=int, choices=[2, 3], default=2)
+    parser.add_argument("--thickness", type=float, default=0.0)
     parser.add_argument("--mesh-size", type=float, default=5.0)
     parser.add_argument("--simulation-time", type=float, default=None)
     parser.add_argument("--normal-phase-time", type=float, default=None)
@@ -124,7 +126,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--skip-mu-plot", action="store_true")
     parser.add_argument("--skip-mu-disp-plot", action="store_true")
+    parser.add_argument(
+        "--mu-disp-y-points",
+        type=float,
+        nargs="*",
+        default=[125.0, 250.0, 375.0, 450.0],
+    )
     parser.add_argument("--skip-animation", action="store_true")
+    parser.add_argument("--skip-shear-stress-animation", action="store_true")
     parser.add_argument("--animation-fps", type=int, default=60)
     parser.add_argument(
         "--animation-workers",
@@ -139,6 +148,53 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--animation-margin", type=float, default=8.0)
     parser.add_argument("--no-animation-swap-axes", action="store_true")
     return parser.parse_args()
+
+
+def _render_animation_bundle(
+    *,
+    data_path: Path,
+    plot_dir: Path,
+    fps: int,
+    workers: int,
+    dpi: int,
+    width: float,
+    height: float,
+    deform_scale: float | None,
+    stress_percentile: float,
+    swap_axes: bool,
+    margin: float,
+    stress_mode: str,
+    stem: str,
+) -> dict[str, float | str | bool]:
+    frames_dir = plot_dir / f"{stem}_frames"
+    video_path = plot_dir / f"{stem}_{fps}fps.mp4"
+    animation_stats = render_all_frames(
+        data_path,
+        frames_dir,
+        workers=workers,
+        dpi=dpi,
+        width=width,
+        height=height,
+        deform_scale=deform_scale,
+        frame_limit=None,
+        stress_percentile=stress_percentile,
+        swap_axes=swap_axes,
+        margin=margin,
+        stress_mode=stress_mode,
+    )
+    make_video(
+        frames_dir,
+        video_path,
+        fps=fps,
+        crf=18,
+        preset="medium",
+    )
+    return {
+        "frames_dir": str(frames_dir),
+        "video": str(video_path),
+        "fps": fps,
+        **animation_stats,
+    }
 
 
 def main() -> int:
@@ -163,6 +219,8 @@ def main() -> int:
     result = run_simulation_dumped(
         case,
         RunConfig(
+            dimension=args.dimension,
+            thickness=args.thickness,
             mesh_size=args.mesh_size,
             simulation_time=sim_time,
             cfl=args.cfl,
@@ -201,38 +259,44 @@ def main() -> int:
             data_path,
             plot_dir / "contact_mu_disp.pdf",
             selection="max-final-slip",
+            y_points=list(args.mu_disp_y_points) if args.mu_disp_y_points else None,
         )
 
-    animation_payload: dict[str, float | str] | None = None
+    animation_payload: dict[str, dict[str, float | str | bool]] | None = None
     if not args.skip_animation:
-        frames_dir = plot_dir / "stress_frames"
-        video_path = plot_dir / f"stress_{args.animation_fps}fps.mp4"
-        animation_stats = render_all_frames(
-            data_path,
-            frames_dir,
-            workers=max(1, args.animation_workers),
-            dpi=args.animation_dpi,
-            width=args.animation_width,
-            height=args.animation_height,
-            deform_scale=args.deform_scale,
-            frame_limit=None,
-            stress_percentile=args.stress_percentile,
-            swap_axes=not args.no_animation_swap_axes,
-            margin=args.animation_margin,
-        )
-        make_video(
-            frames_dir,
-            video_path,
-            fps=args.animation_fps,
-            crf=18,
-            preset="medium",
-        )
         animation_payload = {
-            "frames_dir": str(frames_dir),
-            "video": str(video_path),
-            "fps": args.animation_fps,
-            **animation_stats,
+            "von_mises": _render_animation_bundle(
+                data_path=data_path,
+                plot_dir=plot_dir,
+                fps=args.animation_fps,
+                workers=max(1, args.animation_workers),
+                dpi=args.animation_dpi,
+                width=args.animation_width,
+                height=args.animation_height,
+                deform_scale=args.deform_scale,
+                stress_percentile=args.stress_percentile,
+                swap_axes=not args.no_animation_swap_axes,
+                margin=args.animation_margin,
+                stress_mode="von_mises",
+                stem="stress",
+            )
         }
+        if not args.skip_shear_stress_animation:
+            animation_payload["sigma_xy"] = _render_animation_bundle(
+                data_path=data_path,
+                plot_dir=plot_dir,
+                fps=args.animation_fps,
+                workers=max(1, args.animation_workers),
+                dpi=args.animation_dpi,
+                width=args.animation_width,
+                height=args.animation_height,
+                deform_scale=args.deform_scale,
+                stress_percentile=args.stress_percentile,
+                swap_axes=not args.no_animation_swap_axes,
+                margin=args.animation_margin,
+                stress_mode="sigma_xy",
+                stem="stress_xy",
+            )
 
     stats_dir.mkdir(parents=True, exist_ok=True)
     stats_path = stats_dir / "summary.json"

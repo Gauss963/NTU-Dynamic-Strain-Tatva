@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from tatva import Mesh, Operator
-from tatva.element import Line2, Tri3
+from tatva.element import Line2, Tetrahedron4, Tri3
 
 
 MS_TO_S = 1e-3
@@ -80,6 +80,8 @@ class RunConfig:
     normal_ramp_time: float | None = None
     lock_shear_edge_during_normal: bool = False
     shear_scale: float = 1.0
+    dimension: int = 2
+    thickness: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,8 @@ class BlockModel:
     boundary_nodes: dict[str, jax.Array]
     boundary_segments: dict[str, jax.Array]
     boundary_weights: dict[str, jax.Array]
+    plot_elements: jax.Array
+    plot_parent_elements: jax.Array
 
     @property
     def n_nodes(self) -> int:
@@ -242,20 +246,30 @@ def _node_id(ix: int, iy: int, nx: int) -> int:
     return iy * (nx + 1) + ix
 
 
+def _node_id_3d(ix: int, iy: int, iz: int, nx: int, ny: int) -> int:
+    return iz * (ny + 1) * (nx + 1) + iy * (nx + 1) + ix
+
+
+def _axis_coordinates(start: float, length: float, mesh_size: float, dtype: jnp.dtype) -> jax.Array:
+    if mesh_size <= 0.0:
+        raise ValueError(f"mesh_size must be positive, got {mesh_size}")
+    n_full = int(math.floor(length / mesh_size + 1e-12))
+    coords = [start + i * mesh_size for i in range(n_full + 1)]
+    end = start + length
+    if not math.isclose(coords[-1], end, rel_tol=0.0, abs_tol=1e-9):
+        coords.append(end)
+    return jnp.asarray(coords, dtype=dtype)
+
+
 def create_structured_tri_block(
     spec: LegacyBlockSpec, mesh_size: float, dtype: jnp.dtype
 ) -> tuple[Mesh, dict[str, jax.Array], dict[str, jax.Array]]:
     x0, y0 = spec.origin
     lx, ly = spec.dimensions
-    nx = int(round(lx / mesh_size))
-    ny = int(round(ly / mesh_size))
-    if not math.isclose(nx * mesh_size, lx, rel_tol=0.0, abs_tol=1e-9):
-        raise ValueError(f"{spec.name}: mesh_size={mesh_size} does not divide lx={lx}")
-    if not math.isclose(ny * mesh_size, ly, rel_tol=0.0, abs_tol=1e-9):
-        raise ValueError(f"{spec.name}: mesh_size={mesh_size} does not divide ly={ly}")
-
-    x_vals = jnp.linspace(x0, x0 + lx, nx + 1, dtype=dtype)
-    y_vals = jnp.linspace(y0, y0 + ly, ny + 1, dtype=dtype)
+    x_vals = _axis_coordinates(x0, lx, mesh_size, dtype)
+    y_vals = _axis_coordinates(y0, ly, mesh_size, dtype)
+    nx = int(x_vals.shape[0] - 1)
+    ny = int(y_vals.shape[0] - 1)
     X, Y = jnp.meshgrid(x_vals, y_vals, indexing="xy")
     coords = jnp.stack([X.reshape(-1), Y.reshape(-1)], axis=-1)
 
@@ -304,23 +318,155 @@ def create_structured_tri_block(
     )
 
 
-def make_line_operator(mesh: Mesh, segments: jax.Array) -> Operator:
-    return Operator(mesh._replace(elements=segments), Line2())
+def create_structured_tet_block(
+    spec: LegacyBlockSpec,
+    mesh_size: float,
+    thickness: float,
+    dtype: jnp.dtype,
+) -> tuple[Mesh, dict[str, jax.Array], dict[str, jax.Array], jax.Array, jax.Array]:
+    if thickness <= 0.0:
+        raise ValueError(f"3D thickness must be positive, got {thickness}")
+
+    x0, y0 = spec.origin
+    lx, ly = spec.dimensions
+    x_vals = np.asarray(_axis_coordinates(x0, lx, mesh_size, dtype), dtype=np.float64)
+    y_vals = np.asarray(_axis_coordinates(y0, ly, mesh_size, dtype), dtype=np.float64)
+    z_vals = np.asarray(_axis_coordinates(0.0, thickness, mesh_size, dtype), dtype=np.float64)
+    nx = len(x_vals) - 1
+    ny = len(y_vals) - 1
+    nz = len(z_vals) - 1
+
+    coords = np.empty(((nx + 1) * (ny + 1) * (nz + 1), 3), dtype=np.float32)
+    for iz, z in enumerate(z_vals):
+        for iy, y in enumerate(y_vals):
+            for ix, x in enumerate(x_vals):
+                coords[_node_id_3d(ix, iy, iz, nx, ny)] = (x, y, z)
+
+    elements: list[list[int]] = []
+    boundary_faces: dict[str, list[list[int]]] = {
+        f"{spec.name}-back": [],
+        f"{spec.name}-front": [],
+        f"{spec.name}-right": [],
+        f"{spec.name}-left": [],
+        f"{spec.name}-bottom": [],
+        f"{spec.name}-top": [],
+    }
+    boundary_face_parents: dict[str, list[int]] = {name: [] for name in boundary_faces}
+
+    def add_face(name: str, tri: list[int], parent_idx: int) -> None:
+        boundary_faces[name].append(tri)
+        boundary_face_parents[name].append(parent_idx)
+
+    for iz in range(nz):
+        for iy in range(ny):
+            for ix in range(nx):
+                n000 = _node_id_3d(ix, iy, iz, nx, ny)
+                n100 = _node_id_3d(ix + 1, iy, iz, nx, ny)
+                n010 = _node_id_3d(ix, iy + 1, iz, nx, ny)
+                n110 = _node_id_3d(ix + 1, iy + 1, iz, nx, ny)
+                n001 = _node_id_3d(ix, iy, iz + 1, nx, ny)
+                n101 = _node_id_3d(ix + 1, iy, iz + 1, nx, ny)
+                n011 = _node_id_3d(ix, iy + 1, iz + 1, nx, ny)
+                n111 = _node_id_3d(ix + 1, iy + 1, iz + 1, nx, ny)
+
+                cube_tets = [
+                    [n000, n100, n110, n111],
+                    [n000, n110, n010, n111],
+                    [n000, n010, n011, n111],
+                    [n000, n011, n001, n111],
+                    [n000, n001, n101, n111],
+                    [n000, n101, n100, n111],
+                ]
+                base_parent = len(elements)
+                elements.extend(cube_tets)
+
+                if ix == 0:
+                    add_face(f"{spec.name}-back", [n000, n010, n011], base_parent + 2)
+                    add_face(f"{spec.name}-back", [n000, n011, n001], base_parent + 3)
+                if ix == nx - 1:
+                    add_face(f"{spec.name}-front", [n100, n111, n110], base_parent + 0)
+                    add_face(f"{spec.name}-front", [n100, n101, n111], base_parent + 5)
+                if iy == 0:
+                    add_face(f"{spec.name}-right", [n000, n101, n100], base_parent + 5)
+                    add_face(f"{spec.name}-right", [n000, n001, n101], base_parent + 4)
+                if iy == ny - 1:
+                    add_face(f"{spec.name}-left", [n010, n110, n111], base_parent + 1)
+                    add_face(f"{spec.name}-left", [n010, n111, n011], base_parent + 2)
+                if iz == 0:
+                    add_face(f"{spec.name}-bottom", [n000, n100, n110], base_parent + 0)
+                    add_face(f"{spec.name}-bottom", [n000, n110, n010], base_parent + 1)
+                if iz == nz - 1:
+                    add_face(f"{spec.name}-top", [n001, n011, n111], base_parent + 3)
+                    add_face(f"{spec.name}-top", [n001, n111, n101], base_parent + 4)
+
+    boundary_segments = {
+        name: jnp.asarray(tris, dtype=jnp.int32) for name, tris in boundary_faces.items()
+    }
+    boundary_nodes = {
+        name: jnp.unique(tris.reshape(-1)).astype(jnp.int32)
+        for name, tris in boundary_segments.items()
+    }
+    plot_elements = boundary_segments[f"{spec.name}-bottom"]
+    plot_parent_elements = jnp.asarray(
+        boundary_face_parents[f"{spec.name}-bottom"], dtype=jnp.int32
+    )
+    return (
+        Mesh(coords=jnp.asarray(coords, dtype=dtype), elements=jnp.asarray(elements, dtype=jnp.int32)),
+        boundary_nodes,
+        boundary_segments,
+        plot_elements,
+        plot_parent_elements,
+    )
+
+
+def make_boundary_operator(mesh: Mesh, segments: jax.Array) -> Operator:
+    n_nodes = int(segments.shape[1])
+    if n_nodes == 2:
+        return Operator(mesh._replace(elements=segments), Line2())
+    if n_nodes == 3:
+        return Operator(mesh._replace(elements=segments), Tri3())
+    raise ValueError(f"Unsupported boundary element with {n_nodes} nodes")
 
 
 def boundary_weights(mesh: Mesh, segments: jax.Array, dtype: jnp.dtype) -> jax.Array:
-    line_op = make_line_operator(mesh, segments)
+    if mesh.coords.shape[1] == 3 and segments.shape[1] == 3:
+        tri_pts = mesh.coords[segments]
+        area = 0.5 * jnp.linalg.norm(
+            jnp.cross(tri_pts[:, 1] - tri_pts[:, 0], tri_pts[:, 2] - tri_pts[:, 0]),
+            axis=1,
+        )
+        weights = jnp.zeros(mesh.coords.shape[0], dtype=dtype)
+        nodal = area / 3.0
+        for local_idx in range(3):
+            weights = weights.at[segments[:, local_idx]].add(nodal)
+        return weights
+    boundary_op = make_boundary_operator(mesh, segments)
     zeros = jnp.zeros(mesh.coords.shape[0], dtype=dtype)
-    return jax.jacrev(lambda q: line_op.integrate(q))(zeros)
+    return jax.jacrev(lambda q: boundary_op.integrate(q))(zeros)
 
 
 def build_block_model(
-    spec: LegacyBlockSpec, mesh_size: float, dtype: jnp.dtype
+    spec: LegacyBlockSpec,
+    mesh_size: float,
+    dtype: jnp.dtype,
+    *,
+    dimension: int,
+    thickness: float,
 ) -> BlockModel:
-    mesh, boundary_nodes, boundary_segments = create_structured_tri_block(
-        spec, mesh_size, dtype
-    )
-    operator = Operator(mesh, Tri3())
+    if dimension == 2:
+        mesh, boundary_nodes, boundary_segments = create_structured_tri_block(
+            spec, mesh_size, dtype
+        )
+        operator = Operator(mesh, Tri3())
+        plot_elements = mesh.elements
+        plot_parent_elements = jnp.arange(mesh.elements.shape[0], dtype=jnp.int32)
+    elif dimension == 3:
+        mesh, boundary_nodes, boundary_segments, plot_elements, plot_parent_elements = (
+            create_structured_tet_block(spec, mesh_size, thickness, dtype)
+        )
+        operator = Operator(mesh, Tetrahedron4())
+    else:
+        raise ValueError(f"Unsupported dimension {dimension}")
     weights = {
         name: boundary_weights(mesh, segments, dtype)
         for name, segments in boundary_segments.items()
@@ -332,6 +478,8 @@ def build_block_model(
         boundary_nodes=boundary_nodes,
         boundary_segments=boundary_segments,
         boundary_weights=weights,
+        plot_elements=plot_elements,
+        plot_parent_elements=plot_parent_elements,
     )
 
 
@@ -344,20 +492,25 @@ def lumped_mass(operator: Operator, density: float, dtype: jnp.dtype) -> jax.Arr
     return weights * jnp.asarray(density, dtype=dtype)
 
 
-def make_global_dof_indices(nodes: jax.Array | np.ndarray, offset: int, component: int) -> jax.Array:
-    return offset + 2 * nodes + component
+def make_global_dof_indices(
+    nodes: jax.Array | np.ndarray, offset: int, component: int, n_components: int
+) -> jax.Array:
+    return offset + n_components * nodes + component
 
 
-def make_dirichlet_dofs(stationary: BlockModel, moving_offset: int) -> jax.Array:
+def make_dirichlet_dofs(
+    stationary: BlockModel, moving_offset: int, *, dimension: int
+) -> jax.Array:
     front_nodes = stationary.boundary_nodes["stationary-block-front"]
     top_nodes = stationary.boundary_nodes["stationary-block-left"]
-    dofs = jnp.concatenate(
-        [
-            make_global_dof_indices(front_nodes, moving_offset, 0),
-            make_global_dof_indices(top_nodes, moving_offset, 1),
-        ]
-    )
-    return jnp.unique(dofs.astype(jnp.int32))
+    dofs = [
+        make_global_dof_indices(front_nodes, moving_offset, 0, dimension),
+        make_global_dof_indices(top_nodes, moving_offset, 1, dimension),
+    ]
+    if dimension == 3:
+        bottom_nodes = stationary.boundary_nodes["stationary-block-bottom"]
+        dofs.append(make_global_dof_indices(bottom_nodes, moving_offset, 2, dimension))
+    return jnp.unique(jnp.concatenate(dofs).astype(jnp.int32))
 
 
 def match_interface_nodes(
@@ -365,35 +518,81 @@ def match_interface_nodes(
 ) -> tuple[jax.Array, jax.Array]:
     master_nodes = master.boundary_nodes[master_surface]
     slave_nodes = slave.boundary_nodes[slave_surface]
-    master_y = master.mesh.coords[master_nodes, 1]
-    slave_y = slave.mesh.coords[slave_nodes, 1]
-    match = jnp.isclose(master_y[:, None], slave_y[None, :], atol=1e-6)
-    matched = jnp.any(match, axis=1)
-    if not bool(np.asarray(jnp.any(matched))):
+    master_coords = np.asarray(master.mesh.coords[master_nodes])
+    slave_coords = np.asarray(slave.mesh.coords[slave_nodes])
+    tangential_dims = list(range(1, master.mesh.coords.shape[1]))
+    master_tangent = master_coords[:, tangential_dims]
+    slave_tangent = slave_coords[:, tangential_dims]
+    master_rows = np.round(master_tangent, decimals=6)
+    slave_lookup = {
+        tuple(row.tolist()): int(slave_nodes[idx])
+        for idx, row in enumerate(np.round(slave_tangent, decimals=6))
+    }
+    matched_master: list[int] = []
+    matched_slave: list[int] = []
+    for idx, row in enumerate(master_rows):
+        key = tuple(row.tolist())
+        if key in slave_lookup:
+            matched_master.append(int(master_nodes[idx]))
+            matched_slave.append(slave_lookup[key])
+    if not matched_master:
         raise ValueError("No overlapping interface nodes were found.")
-    slave_match_idx = jnp.argmax(match, axis=1)
-    master_idx = jnp.where(matched)[0]
-    return master_nodes[master_idx], slave_nodes[slave_match_idx[master_idx]]
-
-
-def triangle_min_edge_length(mesh: Mesh) -> float:
-    pts = mesh.coords[mesh.elements]
-    edges = jnp.concatenate(
-        [
-            pts[:, 1] - pts[:, 0],
-            pts[:, 2] - pts[:, 1],
-            pts[:, 0] - pts[:, 2],
-        ],
-        axis=0,
+    return (
+        jnp.asarray(matched_master, dtype=jnp.int32),
+        jnp.asarray(matched_slave, dtype=jnp.int32),
     )
+
+
+def select_interface_plot_nodes(
+    block: BlockModel,
+    interface_nodes: jax.Array,
+) -> jax.Array:
+    coords = np.asarray(block.mesh.coords[np.asarray(interface_nodes)])
+    if coords.shape[1] == 2:
+        order = np.argsort(coords[:, 1])
+        return jnp.asarray(np.asarray(interface_nodes)[order], dtype=jnp.int32)
+
+    z_vals = coords[:, 2]
+    z_mid = 0.5 * (float(z_vals.min()) + float(z_vals.max()))
+    z_pick = float(z_vals[np.argmin(np.abs(z_vals - z_mid))])
+    line_mask = np.isclose(z_vals, z_pick, atol=1e-6)
+    selected = np.asarray(interface_nodes)[line_mask]
+    selected_coords = np.asarray(block.mesh.coords[selected])
+    order = np.argsort(selected_coords[:, 1])
+    return jnp.asarray(selected[order], dtype=jnp.int32)
+
+
+def mesh_min_edge_length(mesh: Mesh) -> float:
+    pts = mesh.coords[mesh.elements]
+    n_nodes_per_element = int(mesh.elements.shape[1])
+    edge_vectors = []
+    for i in range(n_nodes_per_element):
+        for j in range(i + 1, n_nodes_per_element):
+            edge_vectors.append(pts[:, j] - pts[:, i])
+    edges = jnp.concatenate(edge_vectors, axis=0)
     return float(jnp.min(jnp.linalg.norm(edges, axis=1)))
 
 
 def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
     dtype = jnp.float32 if config.dtype == "float32" else jnp.float64
+    dimension = int(config.dimension)
+    if dimension not in (2, 3):
+        raise ValueError(f"Unsupported dimension {dimension}")
 
-    moving = build_block_model(case.moving, config.mesh_size, dtype)
-    stationary = build_block_model(case.stationary, config.mesh_size, dtype)
+    moving = build_block_model(
+        case.moving,
+        config.mesh_size,
+        dtype,
+        dimension=dimension,
+        thickness=config.thickness,
+    )
+    stationary = build_block_model(
+        case.stationary,
+        config.mesh_size,
+        dtype,
+        dimension=dimension,
+        thickness=config.thickness,
+    )
 
     moving_material = case.materials["moving-block"]
     stationary_material = case.materials["stationary-block"]
@@ -403,20 +602,21 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
 
     moving_n = moving.n_nodes
     stationary_n = stationary.n_nodes
-    moving_offset = 2 * moving_n
-    total_dofs = 2 * (moving_n + stationary_n)
+    moving_offset = dimension * moving_n
+    total_dofs = dimension * (moving_n + stationary_n)
 
-    fixed_dofs = make_dirichlet_dofs(stationary, moving_offset)
+    fixed_dofs = make_dirichlet_dofs(stationary, moving_offset, dimension=dimension)
     moving_shear_edge_dofs = make_global_dof_indices(
         moving.boundary_nodes["moving-block-right"],
         0,
         1,
+        dimension,
     ).astype(jnp.int32)
 
     mass_flat = jnp.concatenate(
         [
-            jnp.repeat(moving_mass, 2),
-            jnp.repeat(stationary_mass, 2),
+            jnp.repeat(moving_mass, dimension),
+            jnp.repeat(stationary_mass, dimension),
         ]
     )
 
@@ -425,6 +625,7 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
             jnp.arange(moving_n, dtype=jnp.int32),
             0,
             0,
+            dimension,
         )
     ].add(
         moving.boundary_weights["moving-block-back"]
@@ -436,6 +637,7 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
             jnp.arange(moving_n, dtype=jnp.int32),
             0,
             1,
+            dimension,
         )
     ].add(moving.boundary_weights["moving-block-right"])
 
@@ -445,6 +647,8 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         case.simulation.master_surface,
         case.simulation.slave_surface,
     )
+    interface_plot_master_nodes = select_interface_plot_nodes(moving, master_nodes)
+    interface_plot_slave_nodes = select_interface_plot_nodes(stationary, slave_nodes)
     interface_weights = moving.boundary_weights[case.simulation.master_surface][master_nodes]
 
     penalty_n = (
@@ -458,7 +662,7 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         else penalty_n * 0.1
     )
 
-    hmin = min(triangle_min_edge_length(moving.mesh), triangle_min_edge_length(stationary.mesh))
+    hmin = min(mesh_min_edge_length(moving.mesh), mesh_min_edge_length(stationary.mesh))
     cp = max(moving_material.cp, stationary_material.cp)
     dt_bulk = config.cfl * hmin / cp
     min_mass = float(jnp.min(mass_flat[jnp.setdiff1d(jnp.arange(total_dofs), fixed_dofs)]))
@@ -530,6 +734,8 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         "mass_flat": mass_flat,
         "master_nodes": master_nodes,
         "slave_nodes": slave_nodes,
+        "interface_plot_master_nodes": interface_plot_master_nodes,
+        "interface_plot_slave_nodes": interface_plot_slave_nodes,
         "interface_weights": interface_weights,
         "penalty_n": jnp.asarray(penalty_n, dtype=dtype),
         "penalty_t": jnp.asarray(penalty_t, dtype=dtype),
@@ -550,6 +756,8 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         "shear_steps": shear_steps,
         "moving_offset": moving_offset,
         "total_dofs": total_dofs,
+        "dimension": dimension,
+        "thickness": float(config.thickness),
     }
 
 
@@ -574,6 +782,8 @@ def run_simulation(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
     dt = model["dt"]
     moving_offset = model["moving_offset"]
     total_dofs = model["total_dofs"]
+    dimension = int(model["dimension"])
+    interface_plot_master_nodes = model["interface_plot_master_nodes"]
 
     n_moving = moving.n_nodes
     n_stationary = stationary.n_nodes
@@ -884,6 +1094,8 @@ def run_simulation_dumped(
     dt = model["dt"]
     moving_offset = model["moving_offset"]
     total_dofs = model["total_dofs"]
+    dimension = int(model["dimension"])
+    interface_plot_master_nodes = model["interface_plot_master_nodes"]
 
     n_moving = moving.n_nodes
     n_stationary = stationary.n_nodes
@@ -901,12 +1113,12 @@ def run_simulation_dumped(
         return vec.at[active_fixed_dofs].set(0.0)
 
     def split_flat(flat: jax.Array, n_nodes: int) -> jax.Array:
-        return flat.reshape(n_nodes, 2)
+        return flat.reshape(n_nodes, dimension)
 
     def split_u(u_flat: jax.Array) -> tuple[jax.Array, jax.Array]:
         return (
-            split_flat(u_flat[: 2 * n_moving], n_moving),
-            split_flat(u_flat[2 * n_moving :], n_stationary),
+            split_flat(u_flat[: dimension * n_moving], n_moving),
+            split_flat(u_flat[dimension * n_moving :], n_stationary),
         )
 
     def compute_strain(grad_u: jax.Array) -> jax.Array:
@@ -915,7 +1127,7 @@ def run_simulation_dumped(
     def compute_stress(eps: jax.Array, mat: LegacyMaterial) -> jax.Array:
         return 2.0 * mat.mu * eps + mat.lmbda * jnp.trace(
             eps, axis1=-2, axis2=-1
-        )[..., None, None] * jnp.eye(2, dtype=eps.dtype)
+        )[..., None, None] * jnp.eye(dimension, dtype=eps.dtype)
 
     def collapse_element_field(field: jax.Array) -> jax.Array:
         return field[:, 0] if field.ndim == 4 else field
@@ -940,10 +1152,10 @@ def run_simulation_dumped(
     elastic_energy_and_force = jax.jit(jax.value_and_grad(elastic_energy_total))
 
     total_interface_length = jnp.sum(interface_weights)
-    moving_iface_x = 2 * master_nodes
-    moving_iface_y = 2 * master_nodes + 1
-    stationary_iface_x = moving_offset + 2 * slave_nodes
-    stationary_iface_y = moving_offset + 2 * slave_nodes + 1
+    moving_iface_x = dimension * master_nodes
+    moving_iface_y = dimension * master_nodes + 1
+    stationary_iface_x = moving_offset + dimension * slave_nodes
+    stationary_iface_y = moving_offset + dimension * slave_nodes + 1
 
     def contact_response(
         u_flat: jax.Array, plastic_slip: jax.Array, cum_slip: jax.Array
@@ -1133,13 +1345,27 @@ def run_simulation_dumped(
             )
         return chunk_runners[key](carry, schedule_chunk)
 
+    def sample_stop_indices(phase_steps: int, target_frames: int) -> np.ndarray:
+        phase_steps = max(1, int(phase_steps))
+        target_frames = max(1, int(target_frames))
+        n_samples = min(phase_steps, target_frames)
+        if n_samples == phase_steps:
+            return np.arange(1, phase_steps + 1, dtype=np.int32)
+        return np.floor(
+            np.linspace(1, phase_steps, num=n_samples, endpoint=True, dtype=np.float64)
+        ).astype(np.int32)
+
     shear_frames_per_phase = (
         frames_per_phase if shear_frames_per_phase is None else shear_frames_per_phase
     )
-    save_every_pressure = max(1, math.ceil(model["pressure_steps"] / frames_per_phase))
-    save_every_shear = max(1, math.ceil(model["shear_steps"] / shear_frames_per_phase))
-    n_press_frames = len(range(0, model["pressure_steps"], save_every_pressure))
-    n_shear_frames = len(range(0, model["shear_steps"], save_every_shear))
+    pressure_sample_stops = sample_stop_indices(model["pressure_steps"], frames_per_phase)
+    shear_sample_stops = sample_stop_indices(model["shear_steps"], shear_frames_per_phase)
+    pressure_chunk_sizes = np.diff(np.concatenate(([0], pressure_sample_stops)))
+    shear_chunk_sizes = np.diff(np.concatenate(([0], shear_sample_stops)))
+    save_every_pressure = int(np.median(pressure_chunk_sizes))
+    save_every_shear = int(np.median(shear_chunk_sizes))
+    n_press_frames = int(pressure_sample_stops.shape[0])
+    n_shear_frames = int(shear_sample_stops.shape[0])
     total_frames = (1 if include_initial_frame else 0) + n_press_frames + n_shear_frames
 
     history_columns = [
@@ -1158,16 +1384,18 @@ def run_simulation_dumped(
     data_path.parent.mkdir(parents=True, exist_ok=True)
     frame_count = 0
 
-    def _create_group_datasets(h5: h5py.File, name: str, n_frames: int, n_nodes: int, n_elem: int):
+    def _create_group_datasets(h5: h5py.File, block: BlockModel, name: str, n_frames: int, n_nodes: int, n_elem: int):
         grp = h5.create_group(name)
-        grp.create_dataset("coords", data=np.asarray(moving.mesh.coords if name == "moving" else stationary.mesh.coords))
-        grp.create_dataset("elements", data=np.asarray(moving.mesh.elements if name == "moving" else stationary.mesh.elements))
-        kwargs = dict(compression=compression, chunks=(1, n_nodes, 2))
-        grp.create_dataset("displacement", shape=(n_frames, n_nodes, 2), dtype="f4", **kwargs)
-        grp.create_dataset("velocity", shape=(n_frames, n_nodes, 2), dtype="f4", **kwargs)
-        elem_kwargs = dict(compression=compression, chunks=(1, n_elem, 2, 2))
-        grp.create_dataset("strain", shape=(n_frames, n_elem, 2, 2), dtype="f4", **elem_kwargs)
-        grp.create_dataset("stress", shape=(n_frames, n_elem, 2, 2), dtype="f4", **elem_kwargs)
+        grp.create_dataset("coords", data=np.asarray(block.mesh.coords))
+        grp.create_dataset("elements", data=np.asarray(block.mesh.elements))
+        grp.create_dataset("plot_elements", data=np.asarray(block.plot_elements))
+        grp.create_dataset("plot_parent_elements", data=np.asarray(block.plot_parent_elements))
+        kwargs = dict(compression=compression, chunks=(1, n_nodes, dimension))
+        grp.create_dataset("displacement", shape=(n_frames, n_nodes, dimension), dtype="f4", **kwargs)
+        grp.create_dataset("velocity", shape=(n_frames, n_nodes, dimension), dtype="f4", **kwargs)
+        elem_kwargs = dict(compression=compression, chunks=(1, n_elem, dimension, dimension))
+        grp.create_dataset("strain", shape=(n_frames, n_elem, dimension, dimension), dtype="f4", **elem_kwargs)
+        grp.create_dataset("stress", shape=(n_frames, n_elem, dimension, dimension), dtype="f4", **elem_kwargs)
         return grp
 
     def save_frame(
@@ -1201,8 +1429,12 @@ def run_simulation_dumped(
         h5["history"][frame_idx] = history_row.astype(np.float32)
         h5["phase_id"][frame_idx] = phase_id
         h5["step_id"][frame_idx] = step_id
-        h5["interface/plastic_slip"][frame_idx] = np.asarray(plastic_slip, dtype=np.float32)
-        h5["interface/cumulative_slip"][frame_idx] = np.asarray(cum_slip, dtype=np.float32)
+        h5["interface/plastic_slip"][frame_idx] = np.asarray(
+            plastic_slip[interface_plot_mask], dtype=np.float32
+        )
+        h5["interface/cumulative_slip"][frame_idx] = np.asarray(
+            cum_slip[interface_plot_mask], dtype=np.float32
+        )
 
     kinetic0 = 0.5 * jnp.sum(mass_flat * v_half0**2)
     initial_row = np.asarray(
@@ -1219,6 +1451,11 @@ def run_simulation_dumped(
         h5.attrs["shear_steps"] = model["shear_steps"]
         h5.attrs["pressure_frames_target"] = frames_per_phase
         h5.attrs["shear_frames_target"] = shear_frames_per_phase
+        h5.attrs["pressure_frames_actual"] = n_press_frames
+        h5.attrs["shear_frames_actual"] = n_shear_frames
+        h5.attrs["frame_sampling_mode"] = "linspace-stop-indices"
+        h5.attrs["dimension"] = dimension
+        h5.attrs["thickness"] = float(model["thickness"])
         h5.attrs["include_initial_frame"] = int(include_initial_frame)
         h5.attrs["normal_ramp_time"] = model["normal_ramp_time"]
         h5.attrs["normal_ramp_steps"] = model["normal_ramp_steps"]
@@ -1235,11 +1472,16 @@ def run_simulation_dumped(
             compression=compression,
             chunks=(min(256, total_frames), len(history_columns)),
         )
+        interface_plot_mask = np.isin(
+            np.asarray(master_nodes), np.asarray(interface_plot_master_nodes)
+        )
+
         moving_grp = _create_group_datasets(
-            h5, "moving", total_frames, n_moving, int(moving.mesh.elements.shape[0])
+            h5, moving, "moving", total_frames, n_moving, int(moving.mesh.elements.shape[0])
         )
         stationary_grp = _create_group_datasets(
             h5,
+            stationary,
             "stationary",
             total_frames,
             n_stationary,
@@ -1249,25 +1491,39 @@ def run_simulation_dumped(
         iface.attrs["mu_static"] = friction.mu_s
         iface.attrs["mu_kinetic"] = friction.mu_k
         iface.attrs["critical_slip"] = friction.d_c
-        iface.create_dataset("master_nodes", data=np.asarray(master_nodes))
-        iface.create_dataset("slave_nodes", data=np.asarray(slave_nodes))
+        iface.create_dataset("master_nodes", data=np.asarray(interface_plot_master_nodes))
         iface.create_dataset(
-            "contact_line_y",
-            data=np.asarray(moving.mesh.coords[np.asarray(master_nodes), 1], dtype=np.float32),
+            "slave_nodes",
+            data=np.asarray(slave_nodes[interface_plot_mask], dtype=np.int32),
         )
         iface.create_dataset(
+            "contact_line_y",
+            data=np.asarray(
+                moving.mesh.coords[np.asarray(interface_plot_master_nodes), 1],
+                dtype=np.float32,
+            ),
+        )
+        if dimension == 3:
+            iface.create_dataset(
+                "contact_line_z",
+                data=np.asarray(
+                    moving.mesh.coords[np.asarray(interface_plot_master_nodes), 2],
+                    dtype=np.float32,
+                ),
+            )
+        iface.create_dataset(
             "plastic_slip",
-            shape=(total_frames, int(master_nodes.shape[0])),
+            shape=(total_frames, int(interface_plot_master_nodes.shape[0])),
             dtype="f4",
             compression=compression,
-            chunks=(1, int(master_nodes.shape[0])),
+            chunks=(1, int(interface_plot_master_nodes.shape[0])),
         )
         iface.create_dataset(
             "cumulative_slip",
-            shape=(total_frames, int(master_nodes.shape[0])),
+            shape=(total_frames, int(interface_plot_master_nodes.shape[0])),
             dtype="f4",
             compression=compression,
-            chunks=(1, int(master_nodes.shape[0])),
+            chunks=(1, int(interface_plot_master_nodes.shape[0])),
         )
 
         if include_initial_frame:
@@ -1286,7 +1542,7 @@ def run_simulation_dumped(
                         np.asarray(model["pressure_schedule"]),
                     ]
                 ),
-                save_every_pressure,
+                pressure_sample_stops,
                 normal_phase_fixed_dofs,
             ),
             (
@@ -1298,16 +1554,16 @@ def run_simulation_dumped(
                         np.asarray(model["shear_schedule"]),
                     ]
                 ),
-                save_every_shear,
+                shear_sample_stops,
                 shear_phase_fixed_dofs,
             ),
         ]
-        for phase_id, phase_label, schedule, save_every, active_fixed_dofs in phases:
+        for phase_id, phase_label, schedule, sample_stops, active_fixed_dofs in phases:
             schedule_np = np.asarray(schedule)
-            phase_steps = schedule_np.shape[0]
-            for start in range(0, phase_steps, save_every):
-                stop = min(start + save_every, phase_steps)
-                chunk = jnp.asarray(schedule_np[start:stop], dtype=dtype)
+            prev_stop = 0
+            for stop in sample_stops:
+                stop = int(stop)
+                chunk = jnp.asarray(schedule_np[prev_stop:stop], dtype=dtype)
                 carry, outputs = advance_chunk(
                     carry,
                     chunk,
@@ -1317,6 +1573,7 @@ def run_simulation_dumped(
                 row = np.asarray(outputs[-1])
                 save_frame(h5, frame_count, carry, row, phase_id=phase_id, step_id=stop)
                 frame_count += 1
+                prev_stop = stop
 
         h5.attrs["saved_frames"] = frame_count
 
@@ -1328,6 +1585,8 @@ def run_simulation_dumped(
         "backend": jax.default_backend(),
         "devices": [str(device) for device in jax.devices()],
         "dtype": str(history.dtype),
+        "dimension": dimension,
+        "thickness": float(model["thickness"]),
         "mesh_size": config.mesh_size,
         "dt": dt,
         "pressure_time": model["pressure_time"],
@@ -1336,6 +1595,10 @@ def run_simulation_dumped(
         "normal_ramp_steps": model["normal_ramp_steps"],
         "pressure_steps": model["pressure_steps"],
         "shear_steps": model["shear_steps"],
+        "pressure_frames_target": int(frames_per_phase),
+        "shear_frames_target": int(shear_frames_per_phase),
+        "pressure_frames_saved": int(n_press_frames),
+        "shear_frames_saved": int(n_shear_frames),
         "tau_k": model["tau_k"],
         "tau_s": model["tau_s"],
         "shear_scale": model["shear_scale"],

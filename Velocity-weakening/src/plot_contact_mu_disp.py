@@ -52,12 +52,26 @@ def plot_contact_mu_disp(
         d_c = float(h5["interface"].attrs["critical_slip"])
 
     time_ms = history[:, 0] * 1e3
+    n_frames = int(history.shape[0])
     normal_end_idx = int(np.where(phase_id == 1)[0][-1])
     if y_points:
         point_indices = [int(np.argmin(np.abs(y_coords - y_val))) for y_val in y_points]
         colors = ["#1f4e79", "#2e8b57", "#b25d00", "#8b1e3f", "#5b4db7", "#008b8b"]
-        fig, ax = plt.subplots(figsize=(10.8, 5.6), dpi=180, constrained_layout=True)
+        ncols = 2
+        nrows = int(np.ceil(len(point_indices) / ncols))
+        fig, axes = plt.subplots(
+            nrows,
+            ncols,
+            figsize=(13.2, 7.6 if nrows == 2 else 4.4 * nrows),
+            dpi=180,
+            constrained_layout=True,
+            sharex=True,
+            sharey=True,
+        )
+        axes_arr = np.atleast_1d(axes).reshape(nrows, ncols)
+        flat_axes = list(axes_arr.ravel())
         for i, point_idx in enumerate(point_indices):
+            ax = flat_axes[i]
             slip = cumulative_slip[:, point_idx]
             mu_eff = np.maximum(mu_k, mu_s - (mu_s - mu_k) * np.minimum(slip / d_c, 1.0))
             color = colors[i % len(colors)]
@@ -75,6 +89,22 @@ def plot_contact_mu_disp(
                 s=18,
                 zorder=3,
             )
+            ax.axhline(mu_s, color="#999999", ls="--", lw=1.0)
+            ax.axhline(mu_k, color="#999999", ls=":", lw=1.0)
+            ax.axvline(d_c, color="#999999", ls="-.", lw=1.0)
+            ax.set_title(
+                f"y={y_coords[point_idx]:.0f} mm | frames={n_frames}\n"
+                f"final slip={slip[-1]:.4f}, final mu={mu_eff[-1]:.4f}"
+            )
+            ax.grid(True, alpha=0.3)
+            ax.margins(x=0.04, y=0.06)
+        for ax in flat_axes[len(point_indices) :]:
+            ax.set_visible(False)
+        for row_axes in axes_arr:
+            row_axes[0].set_ylabel("Effective friction coefficient")
+        for ax in axes_arr[-1]:
+            if ax.get_visible():
+                ax.set_xlabel("Cumulative slip / relative tangential displacement")
         plot_kind = "multi-point"
         point_idx = point_indices[0]
         final_slip = float(cumulative_slip[-1, point_idx])
@@ -85,11 +115,23 @@ def plot_contact_mu_disp(
         normal_end_mu = float(
             np.maximum(mu_k, mu_s - (mu_s - mu_k) * min(normal_end_slip / d_c, 1.0))
         )
-        ax.set_title("LSW check at selected contact points")
-        ax.legend(
+        legend_handles = [
+            plt.Line2D([], [], color="#999999", ls="--", lw=1.0, label=f"mu_s = {mu_s:.3f}"),
+            plt.Line2D([], [], color="#999999", ls=":", lw=1.0, label=f"mu_k = {mu_k:.3f}"),
+            plt.Line2D([], [], color="#999999", ls="-.", lw=1.0, label=f"d_c = {d_c:.3f}"),
+            plt.Line2D([], [], color="#666666", marker="o", linestyle="None", label="normal end / final"),
+        ]
+        fig.suptitle(
+            "LSW check at selected contact points\n"
+            f"using {n_frames} dumped frames from {input_path.parent.name}",
+            fontsize=13,
+        )
+        fig.legend(
+            handles=legend_handles,
             loc="center left",
-            bbox_to_anchor=(1.02, 0.5),
-            frameon=True,
+            ncol=1,
+            frameon=False,
+            bbox_to_anchor=(1.01, 0.5),
             borderaxespad=0.0,
         )
     else:
@@ -129,21 +171,20 @@ def plot_contact_mu_disp(
         normal_end_slip = float(slip[normal_end_idx])
         normal_end_mu = float(mu_eff[normal_end_idx])
 
-    ax.axhline(mu_s, color="#999999", ls="--", lw=1.0, label=f"mu_s = {mu_s:.3f}")
-    ax.axhline(mu_k, color="#999999", ls=":", lw=1.0, label=f"mu_k = {mu_k:.3f}")
-    ax.axvline(d_c, color="#999999", ls="-.", lw=1.0, label=f"d_c = {d_c:.3f}")
-    ax.set_xlabel("Cumulative slip / relative tangential displacement")
-    ax.set_ylabel("Effective friction coefficient")
-    ax.margins(x=0.04, y=0.06)
     if not y_points:
+        ax.axhline(mu_s, color="#999999", ls="--", lw=1.0, label=f"mu_s = {mu_s:.3f}")
+        ax.axhline(mu_k, color="#999999", ls=":", lw=1.0, label=f"mu_k = {mu_k:.3f}")
+        ax.axvline(d_c, color="#999999", ls="-.", lw=1.0, label=f"d_c = {d_c:.3f}")
+        ax.set_xlabel("Cumulative slip / relative tangential displacement")
+        ax.set_ylabel("Effective friction coefficient")
+        ax.margins(x=0.04, y=0.06)
         ax.set_title(
             "LSW check at one contact point\n"
-            f"selection={selection}, y={y_coords[point_idx]:.1f} mm, final slip={final_slip:.4f}"
+            f"selection={selection}, y={y_coords[point_idx]:.1f} mm, "
+            f"final slip={final_slip:.4f}, frames={n_frames}"
         )
-    ax.grid(True, alpha=0.3)
-    if not y_points:
+        ax.grid(True, alpha=0.3)
         ax.legend()
-    if not y_points:
         fig.tight_layout()
     fig.savefig(output_path, bbox_inches="tight")
     plt.close(fig)
