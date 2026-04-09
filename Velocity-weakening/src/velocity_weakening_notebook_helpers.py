@@ -26,6 +26,18 @@ def _load_json(path: Path) -> dict[str, Any] | None:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def infer_run_status(run_dir: Path) -> str:
+    summary_path = run_dir / "stats" / "summary.json"
+    data_path = run_dir / "data" / "simulation.h5"
+    if summary_path.exists():
+        return "completed"
+    if data_path.exists():
+        return "partial-data"
+    if any(run_dir.rglob("*")):
+        return "partial-empty"
+    return "empty"
+
+
 def list_runs(limit: int | None = None) -> list[dict[str, Any]]:
     run_dirs = sorted(
         [path for path in RUNS_ROOT.iterdir() if path.is_dir()],
@@ -47,6 +59,7 @@ def list_runs(limit: int | None = None) -> list[dict[str, Any]]:
                 "mesh_size": summary_data.get("mesh_size"),
                 "saved_frames": summary_data.get("saved_frames"),
                 "dt": summary_data.get("dt"),
+                "status": infer_run_status(run_dir),
                 "run_dir": str(run_dir),
             }
         )
@@ -55,7 +68,7 @@ def list_runs(limit: int | None = None) -> list[dict[str, Any]]:
 
 def print_runs(limit: int = 12) -> None:
     rows = list_runs(limit=limit)
-    headers = ("run_id", "mesh_size", "saved_frames", "dt", "run_name")
+    headers = ("run_id", "mesh_size", "saved_frames", "dt", "status", "run_name")
     widths = {header: len(header) for header in headers}
     for row in rows:
         for header in headers:
@@ -114,7 +127,15 @@ def run_paths(run_dir: Path) -> dict[str, str]:
 def load_summary_for_run(run_dir: Path) -> dict[str, Any]:
     payload = _load_json(run_dir / "stats" / "summary.json")
     if payload is None:
-        raise FileNotFoundError(f"Missing summary.json for {run_dir}")
+        return {
+            "summary": {},
+            "run_dir": str(run_dir),
+            "status": infer_run_status(run_dir),
+            "note": (
+                "summary.json is missing. This usually means the run did not finish, "
+                "was interrupted, or failed before post-processing completed."
+            ),
+        }
     return payload
 
 
