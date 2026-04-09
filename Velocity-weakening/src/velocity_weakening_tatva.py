@@ -86,6 +86,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--normal-phase-time", type=float, default=None)
     parser.add_argument("--shear-phase-time", type=float, default=None)
     parser.add_argument("--normal-ramp-time", type=float, default=None)
+    parser.add_argument("--tau-k-start-fraction", type=float, default=0.75)
+    parser.add_argument("--tau-k-full-fraction", type=float, default=None)
+    parser.add_argument("--shear-ramp-time", type=float, default=None)
     parser.add_argument("--cfl", type=float, default=0.35)
     parser.add_argument("--dtype", choices=["float32", "float64"], default="float32")
     parser.add_argument("--platform", choices=["cpu", "metal"], default="cpu")
@@ -238,6 +241,9 @@ def main() -> int:
             normal_phase_time=normal_phase_time,
             shear_phase_time=shear_phase_time,
             normal_ramp_time=args.normal_ramp_time,
+            tau_k_start_fraction_override=args.tau_k_start_fraction,
+            tau_k_full_fraction_override=args.tau_k_full_fraction,
+            shear_ramp_time=args.shear_ramp_time,
             lock_shear_edge_during_normal=args.lock_shear_edge_during_normal,
         ),
         data_path,

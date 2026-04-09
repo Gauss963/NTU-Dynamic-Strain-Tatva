@@ -153,6 +153,9 @@ def default_case_config() -> dict[str, Any]:
         "normal_phase_time": 0.04,
         "normal_ramp_time": 0.02,
         "shear_phase_time": 0.000530994,
+        "tau_k_start_fraction": 0.75,
+        "tau_k_full_fraction": 0.99,
+        "shear_ramp_time": None,
         "shear_scale": 2.5,
         "lock_shear_edge_during_normal": True,
         "frames_per_phase": 4800,
@@ -216,6 +219,10 @@ def build_driver_command(config: dict[str, Any]) -> list[str]:
         str(cfg["normal_phase_time"]),
         "--normal-ramp-time",
         str(cfg["normal_ramp_time"]),
+        "--tau-k-start-fraction",
+        str(cfg["tau_k_start_fraction"]),
+        "--tau-k-full-fraction",
+        str(cfg["tau_k_full_fraction"]),
         "--shear-phase-time",
         str(cfg["shear_phase_time"]),
         "--shear-scale",
@@ -248,6 +255,8 @@ def build_driver_command(config: dict[str, Any]) -> list[str]:
         args.extend(["--normal-penalty", str(cfg["normal_penalty"])])
     if cfg.get("tangential_penalty") is not None:
         args.extend(["--tangential-penalty", str(cfg["tangential_penalty"])])
+    if cfg.get("shear_ramp_time") is not None:
+        args.extend(["--shear-ramp-time", str(cfg["shear_ramp_time"])])
     if cfg.get("mu_disp_y_points"):
         args.append("--mu-disp-y-points")
         args.extend(str(value) for value in cfg["mu_disp_y_points"])

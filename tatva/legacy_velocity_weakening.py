@@ -78,6 +78,9 @@ class RunConfig:
     normal_phase_time: float | None = None
     shear_phase_time: float | None = None
     normal_ramp_time: float | None = None
+    tau_k_start_fraction_override: float | None = 0.75
+    tau_k_full_fraction_override: float | None = None
+    shear_ramp_time: float | None = None
     lock_shear_edge_during_normal: bool = False
     shear_scale: float = 1.0
     dimension: int = 2
@@ -701,10 +704,24 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         if normal_ramp_time > 0.0
         else 0
     )
-    rise_steps = max(1, int(math.ceil(case.simulation.rise_fraction * shear_steps)))
+    tau_k_start_fraction = (
+        case.simulation.tau_k_start_fraction
+        if config.tau_k_start_fraction_override is None
+        else min(max(float(config.tau_k_start_fraction_override), 0.0), 1.0)
+    )
+    tau_k_full_fraction_raw = (
+        case.simulation.tau_k_start_fraction
+        if config.tau_k_full_fraction_override is None
+        else min(max(float(config.tau_k_full_fraction_override), 0.0), 1.0)
+    )
+    tau_k_full_fraction = max(tau_k_start_fraction, tau_k_full_fraction_raw)
     tau_k_start_step = min(
         pressure_steps - 1,
-        max(0, int(math.floor(case.simulation.tau_k_start_fraction * pressure_steps))),
+        max(0, int(math.floor(tau_k_start_fraction * pressure_steps))),
+    )
+    tau_k_full_step = min(
+        pressure_steps - 1,
+        max(0, int(math.floor(tau_k_full_fraction * pressure_steps))),
     )
     shear_ratio = case.moving.dimensions[1] / case.stationary.dimensions[0]
     tau_scale = max(float(config.shear_scale), 0.0)
@@ -718,17 +735,42 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         if config.shear_tau_s_override is not None
         else tau_scale * shear_ratio * case.friction.mu_s * normal_stress
     )
-    dtau = (tau_s - tau_k) / rise_steps
+    shear_ramp_time = (
+        case.simulation.rise_fraction * shear_time
+        if config.shear_ramp_time is None
+        else min(max(float(config.shear_ramp_time), 0.0), shear_time)
+    )
+    shear_ramp_steps = (
+        min(shear_steps, int(math.ceil(shear_ramp_time / dt)))
+        if shear_ramp_time > 0.0
+        else 0
+    )
 
     scalar_dtype = np.float32 if dtype == jnp.float32 else np.float64
     pressure_schedule = np.zeros(pressure_steps, dtype=scalar_dtype)
-    pressure_schedule[tau_k_start_step:] = tau_k
-    shear_schedule = np.full(shear_steps, tau_k, dtype=scalar_dtype)
-    for i in range(shear_steps):
-        if i < rise_steps:
-            shear_schedule[i] = tau_k + (i + 1) * dtau
-        else:
-            shear_schedule[i] = tau_s
+    pressure_schedule[tau_k_full_step:] = tau_k
+    if tau_k_start_step >= tau_k_full_step:
+        pressure_schedule[tau_k_start_step:] = tau_k
+    else:
+        pressure_ramp_steps = tau_k_full_step - tau_k_start_step + 1
+        pressure_schedule[tau_k_start_step : tau_k_full_step + 1] = np.linspace(
+            tau_k / pressure_ramp_steps,
+            tau_k,
+            num=pressure_ramp_steps,
+            endpoint=True,
+            dtype=scalar_dtype,
+        )
+    shear_schedule = np.full(shear_steps, tau_s, dtype=scalar_dtype)
+    if shear_ramp_steps <= 0:
+        shear_schedule[:] = tau_s
+    else:
+        shear_schedule[:shear_ramp_steps] = np.linspace(
+            tau_k,
+            tau_s,
+            num=shear_ramp_steps,
+            endpoint=True,
+            dtype=scalar_dtype,
+        )
 
     normal_schedule_pressure = np.ones(pressure_steps, dtype=scalar_dtype)
     if normal_ramp_steps > 0:
@@ -762,13 +804,16 @@ def build_case_model(case: LegacyCase, config: RunConfig) -> dict[str, Any]:
         "normal_schedule_shear": jnp.asarray(normal_schedule_shear, dtype=dtype),
         "tau_k": float(tau_k),
         "tau_s": float(tau_s),
+        "tau_k_start_fraction": float(tau_k_start_fraction),
+        "tau_k_full_fraction": float(tau_k_full_fraction),
         "shear_scale": tau_scale,
         "normal_stress": float(normal_stress),
         "pressure_time": float(pressure_time),
         "shear_time": float(shear_time),
+        "shear_ramp_time": float(shear_ramp_time),
         "normal_ramp_time": float(normal_ramp_time),
         "normal_ramp_steps": normal_ramp_steps,
-        "rise_steps": rise_steps,
+        "shear_ramp_steps": shear_ramp_steps,
         "pressure_steps": pressure_steps,
         "shear_steps": shear_steps,
         "moving_offset": moving_offset,
