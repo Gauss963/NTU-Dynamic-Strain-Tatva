@@ -12,6 +12,19 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 
+def _cell_edges(values: np.ndarray) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    if values.ndim != 1 or values.size == 0:
+        raise ValueError("values must be a non-empty 1D array")
+    if values.size == 1:
+        delta = 0.5
+        return np.array([values[0] - delta, values[0] + delta], dtype=np.float64)
+    mids = 0.5 * (values[:-1] + values[1:])
+    first = values[0] - 0.5 * (values[1] - values[0])
+    last = values[-1] + 0.5 * (values[-1] - values[-2])
+    return np.concatenate(([first], mids, [last]))
+
+
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(
@@ -69,6 +82,8 @@ def plot_mu_eff_maps(
     y_sorted = y_coords[order]
     cum_sorted = cumulative_slip[:, order]
     time_ms = history[:, 0] * 1e3
+    y_edges = _cell_edges(y_sorted)
+    time_edges = _cell_edges(time_ms)
 
     mu_eff = np.maximum(
         mu_k,
@@ -79,15 +94,15 @@ def plot_mu_eff_maps(
     normal_end_idx = int(normal_idx[-1]) if normal_idx.size else None
 
     fig, ax = plt.subplots(figsize=(10, 6), dpi=180)
-    im = ax.imshow(
+    im = ax.pcolormesh(
+        y_edges,
+        time_edges,
         mu_eff,
-        origin="lower",
-        aspect="auto",
-        extent=[float(y_sorted[0]), float(y_sorted[-1]), float(time_ms[0]), float(time_ms[-1])],
         cmap="viridis",
         vmin=mu_k,
         vmax=mu_s,
-        interpolation="nearest",
+        shading="auto",
+        rasterized=True,
     )
     cbar = fig.colorbar(im, ax=ax, pad=0.02)
     cbar.set_label("Effective friction coefficient")
@@ -117,6 +132,26 @@ def plot_mu_eff_maps(
 
     normal_mask = phase_id == 1
     shear_mask = phase_id == 2
+    normal_time_ms = (
+        time_ms[normal_mask] - float(time_ms[normal_mask][0])
+        if np.any(normal_mask)
+        else np.zeros(0, dtype=np.float32)
+    )
+    shear_time_ms = (
+        time_ms[shear_mask] - float(time_ms[shear_mask][0])
+        if np.any(shear_mask)
+        else np.zeros(0, dtype=np.float32)
+    )
+    normal_time_edges = (
+        _cell_edges(normal_time_ms)
+        if normal_time_ms.size
+        else np.array([0.0, 1.0], dtype=np.float64)
+    )
+    shear_time_edges = (
+        _cell_edges(shear_time_ms)
+        if shear_time_ms.size
+        else np.array([0.0, 1.0], dtype=np.float64)
+    )
     fig = plt.figure(figsize=(10.8, 8.6), dpi=180)
     gs = GridSpec(
         2,
@@ -131,42 +166,48 @@ def plot_mu_eff_maps(
     ax_normal = fig.add_subplot(gs[1, 0], sharex=ax_shear)
     cax = fig.add_subplot(gs[:, 1])
 
-    shear_im = ax_shear.imshow(
+    shear_im = ax_shear.pcolormesh(
+        y_edges,
+        shear_time_edges,
         mu_eff[shear_mask],
-        origin="lower",
-        aspect="auto",
-        extent=[
-            float(y_sorted[0]),
-            float(y_sorted[-1]),
-            float(time_ms[shear_mask][0]),
-            float(time_ms[shear_mask][-1]),
-        ],
         cmap="viridis",
         vmin=mu_k,
         vmax=mu_s,
-        interpolation="nearest",
+        shading="auto",
+        rasterized=True,
     )
-    ax_shear.set_ylabel("Shear time [ms]")
-    ax_shear.set_title("Contact-line effective friction coefficient by phase")
+    ax_shear.set_ylabel("Shear phase time [ms]")
+    if np.any(shear_mask):
+        ax_shear.set_title(
+            "Contact-line effective friction coefficient by phase\n"
+            f"shear abs window={float(time_ms[shear_mask][0]):.3f}–{float(time_ms[shear_mask][-1]):.3f} ms"
+        )
+    else:
+        ax_shear.set_title("Contact-line effective friction coefficient by phase")
 
-    normal_im = ax_normal.imshow(
+    normal_im = ax_normal.pcolormesh(
+        y_edges,
+        normal_time_edges,
         mu_eff[normal_mask],
-        origin="lower",
-        aspect="auto",
-        extent=[
-            float(y_sorted[0]),
-            float(y_sorted[-1]),
-            float(time_ms[normal_mask][0]),
-            float(time_ms[normal_mask][-1]),
-        ],
         cmap="viridis",
         vmin=mu_k,
         vmax=mu_s,
-        interpolation="nearest",
+        shading="auto",
+        rasterized=True,
     )
     ax_normal.set_xlabel("Contact-line y [mm]")
-    ax_normal.set_ylabel("Normal time [ms]")
+    ax_normal.set_ylabel("Normal phase time [ms]")
     plt.setp(ax_shear.get_xticklabels(), visible=False)
+    if np.any(normal_mask):
+        ax_normal.text(
+            0.01,
+            1.02,
+            f"normal abs window={float(time_ms[normal_mask][0]):.3f}–{float(time_ms[normal_mask][-1]):.3f} ms",
+            transform=ax_normal.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=9,
+        )
 
     cbar = fig.colorbar(normal_im, cax=cax)
     cbar.set_label("Effective friction coefficient")
